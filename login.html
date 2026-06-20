@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="sk" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autorizácia - Apex Core</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-image: linear-gradient(to bottom, rgba(10, 15, 30, 0.82), rgba(10, 15, 30, 0.98)),
+                              url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop');
+        }
+        .font-tech { font-family: 'Space Grotesk', sans-serif; }
+    </style>
+</head>
+<body class="h-full flex items-center justify-center bg-cover bg-center bg-fixed">
+
+    <div class="bg-slate-900/65 border border-white/10 p-10 rounded-3xl w-full max-w-md backdrop-blur-2xl shadow-2xl">
+        <div class="text-center mb-10">
+            <div class="inline-block bg-gradient-to-tr from-cyan-400 to-emerald-400 w-12 h-12 rounded-2xl flex items-center justify-center text-slate-950 font-bold text-xl mb-4">⚡</div>
+            <h1 class="text-xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400 font-tech font-bold">APEX OKTE CORE</h1>
+            <p class="text-[9px] text-slate-400 mt-2 uppercase tracking-widest font-bold">Autorizovaný vstup do systému</p>
+        </div>
+
+        {% if error %}
+            <div class="mb-6 p-4 bg-red-500/15 border border-red-500/30 text-red-400 rounded-2xl text-xs text-center font-semibold">
+                {{ error }}
+            </div>
+        {% endif %}
+
+        <form action="/login" method="POST" class="space-y-6">
+            <div>
+                <label class="block text-[10px] text-slate-400 uppercase tracking-widest mb-2 font-bold font-tech">Používateľ (Username)</label>
+                <input type="text" name="username" placeholder="admin" required
+                       class="w-full bg-slate-950/80 border border-white/10 rounded-xl px-4 py-3 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 transition-all font-semibold">
+            </div>
+
+            <div>
+                <label class="block text-[10px] text-slate-400 uppercase tracking-widest mb-2 font-bold font-tech">Heslo (Password)</label>
+                <input type="password" name="password" placeholder="••••••••" required
+                       class="w-full bg-slate-950/80 border border-white/10 rounded-xl px-4 py-3 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 transition-all">
+            </div>
+
+            <button type="submit" class="w-full bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 font-extrabold py-4 rounded-xl text-xs uppercase tracking-wider transition-all hover:opacity-95 active:scale-95 shadow-lg shadow-cyan-500/15">
+                Overiť oprávnenie
+            </button>
+        </form>
+
+        <div class="mt-8 text-center text-[10px] text-slate-500 border-t border-white/5 pt-6 font-mono">
+            Demo účet: <span class="text-slate-400 font-bold">admin / admin</span>
+        </div>
+    </div>
+
+</body>
+</html>
