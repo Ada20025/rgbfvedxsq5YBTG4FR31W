@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="sk" class="h-full bg-slate-950">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apex Grid - Pro Dispatcher</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; overflow: hidden; }
+        .font-tech { font-family: 'Space Grotesk', sans-serif; }
+        
+        .glass-panel {
+            background: rgba(10, 15, 30, 0.75);
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: 0 20px 45px rgba(0,0,0,0.45);
+        }
+        
+        @keyframes flowPulse {
+            0% { stroke-dashoffset: 100; }
+            100% { stroke-dashoffset: 0; }
+        }
+        .flow-line { stroke-dasharray: 6, 12; animation: flowPulse 2s linear infinite; }
+        .flow-line-reverse { stroke-dasharray: 6, 12; animation: flowPulse 2s linear infinite reverse; }
+
+        @keyframes pulseGlow {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 15px rgba(239, 68, 68, 0.7); }
+            50% { transform: scale(1.25); box-shadow: 0 0 30px rgba(239, 68, 68, 1); }
+        }
+        .error-pin { animation: pulseGlow 1.2s infinite ease-in-out; }
+
+        /* Vyladené prechodové efekty pre Drag & Drop */
+        .pin-draggable {
+            touch-action: none;
+            transition: transform 0.05s, box-shadow 0.2s;
+        }
+        .pin-draggable:active {
+            cursor: grabbing;
+            transform: scale(1.3) !important;
+            box-shadow: 0 0 30px rgba(6, 182, 212, 0.8) !important;
+        }
+    </style>
+</head>
+<body class="h-full text-slate-100 flex overflow-hidden bg-slate-950">
+
+    <!-- Kontajner pre TOAST NOTIFIKÁCIE -->
+    <div id="toast-container" class="fixed top-6 right-6 z-50 space-y-3 w-80"></div>
+
+    <!-- Bočné Navigačné Menu (Sidebar) -->
+    <aside class="w-80 border-r border-white/5 bg-slate-950/95 flex flex-col justify-between p-6 z-25">
+        <div class="space-y-8">
+            <div class="flex items-center space-x-3">
+                <div class="bg-gradient-to-tr from-cyan-400 to-emerald-400 w-10 h-10 rounded-2xl flex items-center justify-center text-slate-950 font-black text-lg">⚡</div>
+                <div>
+                    <span class="font-extrabold tracking-wider text-sm block text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400 font-tech font-bold">APEX CORE SCADA</span>
+                    <span class="text-[9px] text-slate-500 uppercase tracking-widest block font-bold">OKTE Real-Time DAM</span>
+                </div>
+            </div>
+
+            <nav class="space-y-2">
+                <button onclick="switchTab('dashboard')" id="btn-dashboard" class="w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                    <span>📊</span> <span>Hlavný Dispečing</span>
+                </button>
+                <button onclick="switchTab('map')" id="btn-map" class="w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all hover:bg-white/5 text-slate-400">
+                    <span>🏠</span> <span>Pôdorys a Mapovanie</span>
+                </button>
+                <button onclick="switchTab('devices')" id="btn-devices" class="w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all hover:bg-white/5 text-slate-400">
+                    <span>🔌</span> <span>Zariadenia (Zoznam)</span>
+                </button>
+            </nav>
+        </div>
+
+        <div class="border-t border-white/5 pt-4 space-y-3">
+            <div class="flex items-center space-x-3">
+                <div class="w-8 h-8 rounded-full bg-slate-900 border border-white/10 flex items-center justify-center text-xs font-bold text-slate-300">A</div>
+                <div>
+                    <div class="text-xs font-bold text-slate-200">{{ username }}</div>
+                    <div class="text-[9px] text-emerald-400 font-mono font-bold">OKTE Spojenie stabilné</div>
+                </div>
+            </div>
+            <a href="/logout" class="block w-full text-center py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-xl text-[11px] font-bold transition-all">
+                Odhlásiť sa
+            </a>
+        </div>
+    </aside>
+
+    <!-- Hlavný interaktívny panel s obsahom -->
+    <div class="flex-grow overflow-y-auto p-8 relative">
+        
+        <!-- ================= PODSTRÁNKA 1: DASHBOARD ================= -->
+        <section id="tab-dashboard" class="space-y-8 transition-all duration-300">
+            <!-- Vrchné ukazovatele -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <!-- Aktuálna cena OKTE -->
+                <div class="glass-panel rounded-3xl p-6 flex flex-col justify-between">
+                    <span class="text-[9px] text-cyan-400 uppercase tracking-widest font-bold font-tech">Živá OKTE Tarifa</span>
+                    <div class="my-3">
+                        <span id="live-price" class="text-3xl font-bold text-cyan-400 font-tech">0.00</span>
+                        <span class="text-[10px] text-slate-500 block mt-0.5">Priemer trhu dnes: <span id="avg-price">0.00</span> EUR</span>
+                    </div>
+                    <span class="text-[8px] text-slate-500">Hodnoty priamo z OKTE API</span>
+                </div>
+                <!-- Status -->
+                <div class="glass-panel rounded-3xl p-6 flex flex-col justify-between">
+                    <span class="text-[9px] text-slate-400 uppercase tracking-widest font-semibold font-tech">Stav Mikrogridu</span>
+                    <div class="my-3">
+                        <div id="live-status" class="text-sm font-bold text-slate-200">Načítavam...</div>
+                        <span class="text-[10px] text-emerald-400 block mt-1">Algoritmus: Model <span id="active-model-num">1</span></span>
+                    </div>
+                    <span class="text-[8px] text-emerald-500 font-semibold">Mikro-riadenie aktívne</span>
+                </div>
+                <!-- Zárobok -->
+                <div class="glass-panel rounded-3xl p-6 bg-gradient-to-tr from-slate-950 via-emerald-950/15 to-slate-950 border border-emerald-500/20 flex flex-col justify-between">
+                    <span class="text-[9px] text-emerald-400 uppercase tracking-widest font-bold font-tech">Generovaný Zisk (OKTE DAM)</span>
+                    <div class="my-3">
+                        <span id="live-earnings" class="text-3xl font-black text-emerald-400 font-tech">0.00000</span>
+                        <span class="text-[10px] text-emerald-500 block">Zápis do SQLite databázy</span>
+                    </div>
+                    <span class="text-[8px] text-slate-500 font-mono">OKTE SPOT SYNC</span>
+                </div>
+                <!-- Stav Chýb a alarmov -->
+                <div id="alarm-box" class="glass-panel rounded-3xl p-6 flex flex-col justify-between border transition-all duration-300 border-white/5">
+                    <span class="text-[9px] text-slate-400 uppercase tracking-widest font-bold font-tech">Poruchová signalizácia</span>
+                    <div class="my-3">
+                        <div id="alarm-status" class="text-sm font-bold text-slate-200">Systém bez porúch</div>
+                        <span id="alarm-sub" class="text-[10px] text-slate-500 block mt-1">Všetky relé v poriadku</span>
+                    </div>
+                    <span class="text-[8px] text-slate-500 font-mono">SCADA Engine v3.5</span>
+                </div>
+            </div>
+
+            <!-- Schéma a Graf -->
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                <!-- Diagram tokov -->
+                <div class="lg:col-span-2 glass-panel rounded-3xl p-6 flex flex-col justify-between">
+                    <h3 class="text-sm font-bold text-slate-300">Dynamický tok prúdu (Power Flow Map)</h3>
+                    <div class="w-full h-64 flex items-center justify-center my-4">
+                        <svg viewBox="0 0 400 300" class="w-full h-full max-w-xs">
+                            <circle cx="200" cy="150" r="22" fill="#090d16" stroke="#334155" stroke-width="2"/>
+                            <text x="200" y="153" fill="#38bdf8" font-size="8" font-weight="bold" text-anchor="middle" class="font-tech">DISTRIB</text>
+
+                            <rect x="160" y="20" width="80" height="35" rx="6" fill="#050810" stroke="#0ea5e9" stroke-width="1.5"/>
+                            <text x="200" y="41" fill="#38bdf8" font-size="9" text-anchor="middle" font-weight="bold">SOLÁR</text>
+
+                            <rect x="20" y="132" width="80" height="35" rx="6" fill="#050810" stroke="#10b981" stroke-width="1.5"/>
+                            <text x="60" y="153" fill="#34d399" font-size="9" text-anchor="middle" font-weight="bold">BATÉRIA</text>
+
+                            <rect x="300" y="132" width="80" height="35" rx="6" fill="#050810" stroke="#a855f7" stroke-width="1.5"/>
+                            <text x="340" y="153" fill="#c084fc" font-size="9" text-anchor="middle" font-weight="bold">DOM</text>
+
+                            <rect x="160" y="240" width="80" height="35" rx="6" fill="#050810" stroke="#f59e0b" stroke-width="1.5"/>
+                            <text x="200" y="261" fill="#fbbf24" font-size="9" text-anchor="middle" font-weight="bold">SIEŤ (OKTE)</text>
+
+                            <!-- Prenosové linky -->
+                            <path id="line-solar" d="M 200 55 L 200 128" stroke="#1e293b" stroke-width="2" fill="none"/>
+                            <path id="line-battery" d="M 100 150 L 178 150" stroke="#1e293b" stroke-width="2" fill="none"/>
+                            <path id="line-home" d="M 222 150 L 300 150" stroke="#1e293b" stroke-width="2" fill="none"/>
+                            <path id="line-grid" d="M 200 172 L 200 240" stroke="#1e293b" stroke-width="2" fill="none"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Graf OKTE profilu -->
+                <div class="lg:col-span-3 glass-panel rounded-3xl p-6 flex flex-col justify-between">
+                    <h3 class="text-sm font-bold text-slate-300">Profil cien elektriny denného trhu OKTE (24h)</h3>
+                    <div class="h-56 my-4">
+                        <canvas id="liveChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Konzola logov a výber modelov -->
+            <div class="glass-panel rounded-3xl p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-sm font-bold text-slate-300">Systémový audit a rozhodovacia konzola (SQLite)</h3>
+                    <!-- Interaktívne filtre logov -->
+                    <div class="flex space-x-1.5 bg-slate-950 p-1 rounded-xl border border-white/5">
+                        <button onclick="setLogFilter('all')" id="log-f-all" class="px-3 py-1.5 text-[9px] font-bold rounded-lg transition-all bg-white/5 text-slate-300">Všetky</button>
+                        <button onclick="setLogFilter('danger')" id="log-f-danger" class="px-3 py-1.5 text-[9px] font-bold rounded-lg transition-all text-slate-500 hover:text-red-400">Chybové</button>
+                        <button onclick="setLogFilter('info')" id="log-f-info" class="px-3 py-1.5 text-[9px] font-bold rounded-lg transition-all text-slate-500 hover:text-cyan-400">Systém</button>
+                        <button onclick="setLogFilter('success')" id="log-f-success" class="px-3 py-1.5 text-[9px] font-bold rounded-lg transition-all text-slate-500 hover:text-emerald-400">Úspešné</button>
+                    </div>
+                </div>
+                <div id="terminal" class="bg-slate-950/90 border border-white/5 p-4 rounded-xl h-44 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-2 text-slate-400"></div>
+                
+                <div class="grid grid-cols-4 gap-2 mt-4 pt-4 border-t border-white/5">
+                    <button onclick="changeModel(1)" id="m-btn-1" class="py-2 text-[10px] font-bold rounded-xl border text-center transition-all border-white/5 bg-white/5 hover:bg-white/10">Model 1</button>
+                    <button onclick="changeModel(2)" id="m-btn-2" class="py-2 text-[10px] font-bold rounded-xl border text-center transition-all border-white/5 bg-white/5 hover:bg-white/10">Model 2</button>
+                    <button onclick="changeModel(3)" id="m-btn-3" class="py-2 text-[10px] font-bold rounded-xl border text-center transition-all border-white/5 bg-white/5 hover:bg-white/10">Model 3</button>
+                    <button onclick="changeModel(4)" id="m-btn-4" class="py-2 text-[10px] font-bold rounded-xl border text-center transition-all border-white/5 bg-white/5 hover:bg-white/10">Model 4</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= PODSTRÁNKA 2: MAPA DOMU (ŤAHATEĽNÉ PINY) ================= -->
+        <section id="tab-map" class="hidden space-y-8 transition-all duration-300">
+            <div>
+                <h2 class="text-xl font-bold text-slate-100 font-tech">Technický pôdorys a umiestnenie hardvéru</h2>
+                <p class="text-xs text-slate-400 mt-1">Uchopením a ťahaním presúvajte piny priamo po pôdoryse domu. Prejdite myšou nad bod pre zobrazenie telemetrie.</p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <!-- Plán domu -->
+                <div class="lg:col-span-2 glass-panel rounded-3xl p-6 relative">
+                    <h3 class="text-sm font-bold text-slate-300 mb-4 font-tech">Interaktívna schéma nehnuteľnosti (Drag & Drop)</h3>
+                    
+                    <div id="house-map-container" class="relative w-full aspect-[4/3] bg-slate-950 border border-white/10 rounded-2xl overflow-hidden cursor-crosshair">
+                        <!-- Blueprint schematická mriežka -->
+                        <svg class="absolute inset-0 w-full h-full opacity-15" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                                    <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#38bdf8" stroke-width="0.5"/>
+                                </pattern>
+                            </defs>
+                            <rect width="100%" height="100%" fill="url(#grid)" />
+                            <rect x="5%" y="5%" width="40%" height="40%" stroke="#38bdf8" stroke-width="1.5" fill="none"/>
+                            <rect x="45%" y="5%" width="50%" height="40%" stroke="#38bdf8" stroke-width="1.5" fill="none"/>
+                            <rect x="5%" y="45%" width="45%" height="50%" stroke="#38bdf8" stroke-width="1.5" fill="none"/>
+                            <rect x="50%" y="45%" width="45%" height="50%" stroke="#38bdf8" stroke-width="1.5" fill="none"/>
+                            <text x="10%" y="15%" fill="#38bdf8" font-size="10" font-weight="bold">IZBA A</text>
+                            <text x="50%" y="15%" fill="#38bdf8" font-size="10" font-weight="bold">FVE STRIEDAČ</text>
+                            <text x="10%" y="55%" fill="#38bdf8" font-size="10" font-weight="bold">BATÉRIA</text>
+                            <text x="55%" y="55%" fill="#38bdf8" font-size="10" font-weight="bold">GARÁŽ / WALLBOX</text>
+                        </svg>
+
+                        <!-- Piny overlay -->
+                        <div id="pins-overlay" class="absolute inset-0"></div>
+                    </div>
+                </div>
+
+                <!-- Výber zariadenia na pripnutie -->
+                <div class="glass-panel rounded-3xl p-6 flex flex-col justify-between">
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-300 mb-2 font-tech">Vyberte hardvér na osadenie</h3>
+                        <p class="text-xs text-slate-400 mb-6">Zvoľte zariadenie a kliknite do plánu nehnuteľnosti na ľavej strane pre prvé osadenie.</p>
+                        
+                        <div id="device-select-container" class="space-y-3"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= PODSTRÁNKA 3: ZARIADENIA ================= -->
+        <section id="tab-devices" class="hidden space-y-8 transition-all duration-300">
+            <div>
+                <h2 class="text-xl font-bold text-slate-100 font-tech">Konfigurácia smart hardvéru</h2>
+                <p class="text-xs text-slate-400 mt-1">Zoznam začína prázdny. Pridajte svoje vlastné zariadenia.</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Zoznam z DB -->
+                <div class="glass-panel rounded-3xl p-6 space-y-4">
+                    <h3 class="text-sm font-bold text-slate-300 mb-4">Registrované hardvérové relé</h3>
+                    <div id="devices-list" class="space-y-3"></div>
+                </div>
+
+                <!-- Formulár -->
+                <div class="glass-panel rounded-3xl p-6 flex flex-col justify-between">
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-300 mb-2">Pridať nové fyzické relé</h3>
+                        <p class="text-xs text-slate-400 mb-6">Zariadenie sa uloží do vašej databázy SQLite a môžete ho umiestniť na mapu.</p>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-[9px] text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Názov relé</label>
+                            <input id="new-dev-name" type="text" placeholder="napr. Tepelné čerpadlo Daikin" class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-semibold">
+                        </div>
+                        <div>
+                            <label class="block text-[9px] text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Typ rozhrania</label>
+                            <select id="new-dev-type" class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-xs text-slate-300 focus:outline-none focus:border-cyan-500 font-semibold font-tech">
+                                <option value="appl">Iné zariadenie</option>
+                                <option value="battery">Domáca batéria</option>
+                                <option value="solar">Fotovoltický striedač</option>
+                                <option value="ev">Wallbox pre auto</option>
+                            </select>
+                        </div>
+                        <button onclick="addDevice()" class="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold py-3.5 rounded-xl transition-all">
+                            Zaregistrovať nové relé do SQLite
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- JavaScript - Drag & Drop, Tooltipy, Live API, Graph -->
+    <script>
+        let activeDeviceToPin = null;
+        let activeLogFilter = 'all';
+
+        // --- CLIENT ROUTER (SPA) ---
+        function switchTab(tabId) {
+            document.getElementById('tab-dashboard').classList.add('hidden');
+            document.getElementById('tab-map').classList.add('hidden');
+            document.getElementById('tab-devices').classList.add('hidden');
+
+            document.getElementById('btn-dashboard').className = "w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all hover:bg-white/5 text-slate-400";
+            document.getElementById('btn-map').className = "w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all hover:bg-white/5 text-slate-400";
+            document.getElementById('btn-devices').className = "w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all hover:bg-white/5 text-slate-400";
+
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+
+            const activeBtn = document.getElementById(`btn-${tabId}`);
+            activeBtn.className = "w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl text-xs font-bold transition-all bg-cyan-500/10 text-cyan-400 border border-cyan-500/20";
+        }
+
+        // --- NOTIFIKÁCIE TOAST ---
+        function showNotification(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            let bgClass = 'bg-slate-900 border-white/10 text-slate-200';
+            if (type === 'success') bgClass = 'bg-emerald-950/90 border-emerald-500/30 text-emerald-400';
+            if (type === 'danger') bgClass = 'bg-red-950/90 border-red-500/30 text-red-400';
+            if (type === 'warning') bgClass = 'bg-amber-950/90 border-amber-500/30 text-amber-400';
+
+            toast.className = `p-4 rounded-2xl border text-xs font-bold ${bgClass} shadow-2xl transition-all duration-300 transform translate-x-20 opacity-0 flex items-center justify-between`;
+            toast.innerHTML = `
+                <span>${message}</span>
+                <button onclick="this.parentElement.remove()" class="text-[10px] ml-4 opacity-60 hover:opacity-100">✕</button>
+            `;
+            
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.remove('translate-x-20', 'opacity-0');
+            }, 50);
+
+            setTimeout(() => {
+                toast.remove();
+            }, 5000);
+        }
+
+        // --- GRAF OKTE ---
+        const liveChartCtx = document.getElementById('liveChart').getContext('2d');
+        const liveChart = new Chart(liveChartCtx, {
+            type: 'line',
+            data: {
+                labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                datasets: [{
+                    data: [],
+                    borderColor: 'rgb(6, 182, 212)',
+                    backgroundColor: 'rgba(6, 182, 212, 0.02)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.45,
+                    pointRadius: 2,
+                    pointBackgroundColor: 'rgb(6, 182, 212)'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 8 } } },
+                    y: { grid: { color: 'rgba(255,255,255,0.02)' }, ticks: { color: '#64748b', font: { size: 8 } } }
+                }
+            }
+        });
+
+        // --- DRAG & DROP PINNING LOGIKA ---
+        let currentDraggedPinId = null;
+
+        function startPinDrag(e, deviceId) {
+            currentDraggedPinId = deviceId;
+            e.dataTransfer.setData("text/plain", deviceId);
+        }
+
+        const mapContainer = document.getElementById('house-map-container');
+        mapContainer.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+
+        mapContainer.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            if (!currentDraggedPinId) return;
+
+            const rect = mapContainer.getBoundingClientRect();
+            const posX = ((e.clientX - rect.left) / rect.width) * 100;
+            const posY = ((e.clientY - rect.top) / rect.height) * 100;
+
+            // Uloženie novej pozície po ťahaní
+            await fetch('/api/update_device_pin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: currentDraggedPinId, x: posX.toFixed(2), y: posY.toFixed(2) })
+            });
+
+            currentDraggedPinId = null;
+            fetchLiveData();
+        });
+
+        // Manuálne osadenie kliknutím
+        mapContainer.addEventListener('click', async (e) => {
+            if (!activeDeviceToPin) return;
+
+            const rect = mapContainer.getBoundingClientRect();
+            const posX = ((e.clientX - rect.left) / rect.width) * 100;
+            const posY = ((e.clientY - rect.top) / rect.height) * 100;
+
+            await fetch('/api/update_device_pin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: activeDeviceToPin, x: posX.toFixed(2), y: posY.toFixed(2) })
+            });
+
+            activeDeviceToPin = null;
+            fetchLiveData();
+        });
+
+        function selectDeviceToPin(id, name) {
+            activeDeviceToPin = id;
+            showNotification(`Vybrané: ${name}. Kliknite teraz kamkoľvek do pôdorysu pre prvé umiestnenie.`, "info");
+        }
+
+        // --- FILTRE PRE TERMINÁLOVÉ LOGY ---
+        function setLogFilter(type) {
+            activeLogFilter = type;
+            const filters = ['all', 'danger', 'info', 'success'];
+            filters.forEach(f => {
+                const btn = document.getElementById(`log-f-${f}`);
+                if (f === type) {
+                    btn.className = "px-3 py-1.5 text-[9px] font-bold rounded-lg transition-all bg-white/5 text-slate-200";
+                } else {
+                    btn.className = "px-3 py-1.5 text-[9px] font-bold rounded-lg transition-all text-slate-500 hover:text-slate-400";
+                }
+            });
+            fetchLiveData();
+        }
+
+        // --- SYNCHRONIZÁCIA A DATA STREAM ---
+        let lastFailureState = {};
+
+        async function fetchLiveData() {
+            try {
+                const response = await fetch('/api/system_state');
+                const data = await response.json();
+
+                // Dashboard prvky
+                document.getElementById('live-price').innerText = data.price.toFixed(2);
+                document.getElementById('avg-price').innerText = data.avg_price.toFixed(2);
+                document.getElementById('live-status').innerText = data.status;
+                document.getElementById('live-earnings').innerText = data.earnings.toFixed(5);
+
+                // Modely
+                for (let i = 1; i <= 4; i++) {
+                    const btn = document.getElementById(`m-btn-${i}`);
+                    if (data.active_model === i) {
+                        btn.className = "py-2 text-[10px] font-bold rounded-xl border text-center transition-all border-cyan-500 bg-cyan-950/30 text-cyan-400";
+                    } else {
+                        btn.className = "py-2 text-[10px] font-bold rounded-xl border text-center transition-all border-white/5 bg-white/5 text-slate-400 hover:bg-white/10";
+                    }
+                }
+
+                liveChart.data.datasets[0].data = data.hourly_prices;
+                liveChart.update();
+
+                updateSVGFlows(data.action);
+
+                let hasSystemFailure = false;
+                let failedCount = 0;
+
+                // Vyčistenie a znovuvykreslenie pinov
+                const pinsOverlay = document.getElementById('pins-overlay');
+                pinsOverlay.innerHTML = '';
+
+                const selectContainer = document.getElementById('device-select-container');
+                selectContainer.innerHTML = '';
+
+                const devList = document.getElementById('devices-list');
+                devList.innerHTML = '';
+
+                if (data.devices.length === 0) {
+                    devList.innerHTML = `<div class="text-center py-8 text-xs text-slate-500 border border-dashed border-white/5 rounded-2xl">Žiadne relé. Pridajte hardvér vpravo.</div>`;
+                    selectContainer.innerHTML = `<div class="text-center py-8 text-xs text-slate-500 border border-dashed border-white/5 rounded-2xl">Vytvorte si zariadenia v zozname.</div>`;
+                } else {
+                    data.devices.forEach(d => {
+                        // Kontrola alarmov
+                        if (d.is_failed === 1) {
+                            hasSystemFailure = true;
+                            failedCount++;
+                            if (lastFailureState[d.id] !== 1) {
+                                showNotification(`Kritická chyba: ${d.name} odpojené!`, "danger");
+                                lastFailureState[d.id] = 1;
+                            }
+                        } else {
+                            if (lastFailureState[d.id] === 1) {
+                                showNotification(`Obnovené: ${d.name} pripojené späť do siete.`, "success");
+                                lastFailureState[d.id] = 0;
+                            }
+                        }
+
+                        // Vykreslenie pinov (Drag & Drop + Tooltipy)
+                        if (d.pos_x !== null && d.pos_y !== null) {
+                            const pinColor = d.is_failed === 1 ? 'bg-red-500 error-pin' : d.is_active ? 'bg-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.5)]' : 'bg-slate-600';
+                            
+                            pinsOverlay.innerHTML += `
+                                <div draggable="true" ondragstart="startPinDrag(event, ${d.id})"
+                                     class="absolute w-5 h-5 rounded-full ${pinColor} flex items-center justify-center -translate-x-1/2 -translate-y-1/2 cursor-grab border-2 border-slate-950 shadow-xl group pin-draggable" 
+                                     style="left: ${d.pos_x}%; top: ${d.pos_y}%;">
+                                     
+                                     <!-- Detailný Plávajúci Tooltip (Hover Panel) -->
+                                     <div class="hidden group-hover:block absolute bottom-7 left-1/2 -translate-x-1/2 w-48 glass-panel p-3.5 rounded-2xl border border-white/10 z-50 pointer-events-auto">
+                                        <h4 class="text-[10px] font-black text-white truncate">${d.name}</h4>
+                                        <span class="text-[8px] text-slate-500 block uppercase font-mono mt-0.5">${d.type}</span>
+                                        <div class="border-t border-white/5 my-2 pt-2">
+                                            <div class="text-[10px] text-cyan-400 font-mono font-bold">${d.telemetry}</div>
+                                            <button onclick="toggleDevice(${d.id})" class="mt-2 w-full text-center py-1 bg-white/5 hover:bg-white/10 rounded-lg text-[9px] font-bold text-slate-300 transition-all">
+                                                Prepnúť Stav
+                                            </button>
+                                        </div>
+                                     </div>
+                                </div>
+                            `;
+                        } else {
+                            selectContainer.innerHTML += `
+                                <button onclick="selectDeviceToPin(${d.id}, '${d.name}')" id="pin-btn-${d.id}" class="w-full text-left p-3.5 rounded-2xl border text-xs bg-white/5 border-white/5 text-slate-300 flex justify-between items-center hover:bg-white/10 transition-all">
+                                    <span>📍 Pripnúť: ${d.name}</span>
+                                    <span class="text-[10px] text-slate-500 uppercase font-mono">${d.type}</span>
+                                </button>
+                            `;
+                        }
+
+                        // Relé zoznam
+                        const activeClass = d.is_active ? 'bg-emerald-500' : 'bg-slate-800';
+                        const dotClass = d.is_active ? 'translate-x-6' : '';
+                        const failText = d.is_failed === 1 ? 'Obnoviť' : 'Chyba';
+                        const failBtnClass = d.is_failed === 1 ? 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20' : 'bg-white/5 hover:bg-white/10 text-slate-400';
+
+                        devList.innerHTML += `
+                            <div class="flex justify-between items-center bg-slate-950/80 border border-white/5 p-4 rounded-2xl">
+                                <div class="flex items-center space-x-3">
+                                    <span class="text-lg">${d.type === 'solar' ? '☀️' : d.type === 'battery' ? '🔋' : d.type === 'ev' ? '🚗' : '🔌'}</span>
+                                    <div>
+                                        <h4 class="text-xs font-bold ${d.is_failed === 1 ? 'text-red-400' : 'text-white'}">${d.name}</h4>
+                                        <span class="text-[9px] text-slate-500 uppercase font-mono">${d.type}</span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center space-x-3">
+                                    <button onclick="toggleFailure(${d.id})" class="px-2.5 py-1 text-[9px] font-bold rounded-lg border transition-all ${failBtnClass}">${failText}</button>
+                                    <button onclick="toggleDevice(${d.id})" class="w-12 h-6 rounded-full transition-all relative flex items-center p-1 ${activeClass}">
+                                        <div class="w-4 h-4 bg-white rounded-full shadow-md transition-all ${dotClass}"></div>
+                                    </button>
+                                    <button onclick="deleteDevice(${d.id})" class="text-xs text-slate-500 hover:text-red-400">✕</button>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+
+                // Alarm panel
+                const alarmBox = document.getElementById('alarm-box');
+                const alarmStatus = document.getElementById('alarm-status');
+                const alarmSub = document.getElementById('alarm-sub');
+
+                if (hasSystemFailure) {
+                    alarmBox.className = "glass-panel rounded-3xl p-6 flex flex-col justify-between border transition-all duration-300 border-red-500/30 bg-red-950/10";
+                    alarmStatus.className = "text-sm font-bold text-red-400";
+                    alarmStatus.innerText = "ALARM: Defekt relé";
+                    alarmSub.innerText = `${failedCount} uzly vykazujú stratu spojenia`;
+                } else {
+                    alarmBox.className = "glass-panel rounded-3xl p-6 flex flex-col justify-between border transition-all duration-300 border-white/5";
+                    alarmStatus.className = "text-sm font-bold text-slate-200";
+                    alarmStatus.innerText = "Bez porúch";
+                    alarmSub.innerText = "Všetky systémy fungujú nominálne";
+                }
+
+                // Vykreslenie a filtrácia logov
+                const container = document.getElementById('terminal');
+                container.innerHTML = '';
+                data.logs.forEach(log => {
+                    if (activeLogFilter !== 'all' && log.type !== activeLogFilter) return;
+
+                    let color = 'text-slate-400';
+                    if (log.type === 'success') color = 'text-emerald-400';
+                    if (log.type === 'warning') color = 'text-amber-400';
+                    if (log.type === 'danger') color = 'text-red-400';
+
+                    container.innerHTML += `
+                        <div class="flex space-x-2">
+                            <span class="text-slate-600 font-mono">[${log.timestamp}]</span>
+                            <span class="${color}">${log.message}</span>
+                        </div>
+                    `;
+                });
+
+            } catch (error) {
+                console.error("Chyba API synchronizácie:", error);
+            }
+        }
+
+        async function changeModel(modelId) {
+            await fetch(`/api/change_model/${modelId}`, { method: 'POST' });
+            fetchLiveData();
+        }
+
+        async function addDevice() {
+            const nameInput = document.getElementById('new-dev-name');
+            const typeInput = document.getElementById('new-dev-type');
+
+            if (!nameInput.value) return;
+
+            await fetch('/api/add_device', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: nameInput.value, type: typeInput.value })
+            });
+
+            nameInput.value = '';
+            fetchLiveData();
+            switchTab('map'); 
+        }
+
+        async function toggleDevice(id) {
+            await fetch(`/api/toggle_device/${id}`, { method: 'POST' });
+            fetchLiveData();
+        }
+
+        async function toggleFailure(id) {
+            await fetch(`/api/toggle_device_failure/${id}`, { method: 'POST' });
+            fetchLiveData();
+        }
+
+        async function deleteDevice(id) {
+            await fetch(`/api/delete_device/${id}`, { method: 'POST' });
+            fetchLiveData();
+        }
+
+        function updateSVGFlows(action) {
+            const lSolar = document.getElementById('line-solar');
+            const lBattery = document.getElementById('line-battery');
+            const lHome = document.getElementById('line-home');
+            const lGrid = document.getElementById('line-grid');
+
+            [lSolar, lBattery, lHome, lGrid].forEach(line => {
+                line.setAttribute('stroke', '#1e293b');
+                line.classList.remove('flow-line', 'flow-line-reverse');
+            });
+
+            lHome.setAttribute('stroke', '#a855f7');
+            lHome.classList.add('flow-line');
+
+            lSolar.setAttribute('stroke', '#0ea5e9');
+            lSolar.classList.add('flow-line');
+
+            if (action === "CHARGING") {
+                lBattery.setAttribute('stroke', '#10b981');
+                lBattery.classList.add('flow-line-reverse');
+                lGrid.setAttribute('stroke', '#f59e0b');
+                lGrid.classList.add('flow-line');
+            } 
+            else if (action === "CONSUMING") {
+                lBattery.setAttribute('stroke', '#10b981');
+                lBattery.classList.add('flow-line');
+            }
+            else if (action === "SELLING") {
+                lBattery.setAttribute('stroke', '#10b981');
+                lBattery.classList.add('flow-line');
+                lGrid.setAttribute('stroke', '#f59e0b');
+                lGrid.classList.add('flow-line-reverse');
+            }
+        }
+
+        setInterval(fetchLiveData, 1500);
+        fetchLiveData();
+    </script>
+</body>
+</html>
